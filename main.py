@@ -29,48 +29,20 @@ def strip_html_tags(text: str) -> str:
     return re.sub(clean, '', text)
 
 
-def rss_parser(
-        xml: str,
-        limit: Optional[int] = None,
-        json: bool = False, category: str = None
-) -> List[str]:
-    """
-    RSS parser.
-
-    Args:
-        xml: XML document as a string.
-        limit: Number of the news to return. if None, returns all news.
-        json: If True, fomat output as JSON.
-        category: Optional category for filtering
-
-    Returns:
-        List of strings.
-        Which then can be printed to stdout or written to file
-        as a separate lines.
-
-    Examples:
-        >>> xml_ = '<rss><channel><title>Some RSS Channel</title>' +
-        '<link>https://some.rss.com</link>' +
-        '<description>Some RSS Channel</description></channel></rss>'
-        >>> rss_parser(xml_)
-        ["Feed: Some RSS Channel",
-        "Link: https://some.rss.com"]
-        >>> print("\\n".join(rss_parser(xml_)))
-        Feed: Some RSS Channel
-        Link: https://some.rss.com
-    """
-    # Your code goes here
+def parse_xml(xml: str):
     try:
         root = ET.fromstring(xml)
     except ET.ParseError as e:
         raise RSSParseError(e)
-
     channel = root.find("channel")
     if channel is None:
         raise RSSParseError("No <channel> element found.")
+    return channel
 
-    # Build the channel data with extra fields.
-    feed_data = {
+
+# Helper function to extract feed data
+def extract_feed_data(channel) -> dict:
+    return {
         "title": channel.findtext("title", ""),
         "link": channel.findtext("link", ""),
         "lastBuildDate": channel.findtext("lastBuildDate", ""),
@@ -82,54 +54,54 @@ def rss_parser(
                      cat.text]
     }
 
-    # Parse <item> elements.
-    items = channel.findall("item")
 
-    # Apply the category filter first
-    if category:
-        items = [item for item in items if
-                 category in item.findtext("category", "")]
+# Helper function to filter items by category
+def filter_by_category(items, category: str):
+    return [item for item in items if
+            category in item.findtext("category", "")]
 
-    # Apply the limit
-    if limit is not None:
-        items = items[:limit]
 
-    # For plain text output, keep keys even if empty.
-    plain_items = []
-    for item in items:
-        item_data = {
-            "title": item.findtext("title", ""),
-            "author": item.findtext("author", ""),
-            "pubDate": item.findtext("pubDate", ""),
-            "link": item.findtext("link", ""),
-            "category": item.findtext("category", ""),
-            "description": strip_html_tags(html.unescape(item.findtext(
-                "description", ""))),
-        }
-        plain_items.append(item_data)
+# Helper function to apply limit to the items
+def apply_limit(items, limit: Optional[int]):
+    return items[:limit] if limit is not None else items
 
-    feed_data["items"] = plain_items
 
-    if json:
-        def clean_dict(d):
-            return {k: v for k, v in d.items() if v not in [None, "", []]}
+# Helper function to extract plain item data
+def extract_item_data(item) -> dict:
+    return {
+        "title": item.findtext("title", ""),
+        "author": item.findtext("author", ""),
+        "pubDate": item.findtext("pubDate", ""),
+        "link": item.findtext("link", ""),
+        "category": item.findtext("category", ""),
+        "description": strip_html_tags(
+            html.unescape(item.findtext("description", ""))),
+    }
 
-        feed_data_json = {}
-        for key in ["title", "link", "lastBuildDate", "pubDate", "language",
-                    "managingEditor", "description", "category"]:
-            val = feed_data.get(key)
-            if val not in [None, "", []]:
-                feed_data_json[key] = val
 
-        if plain_items:
-            items_clean = [clean_dict(item) for item in plain_items if
-                           clean_dict(item)]
-            if items_clean:
-                feed_data_json["items"] = items_clean
+# Helper function to convert data to JSON
+def convert_to_json(feed_data: dict, plain_items: List[dict]) -> List[str]:
+    def clean_dict(d):
+        return {k: v for k, v in d.items() if v not in [None, "", []]}
 
-        return [
-            json_module.dumps(feed_data_json, indent=2, ensure_ascii=False)]
+    feed_data_json = {}
+    for key in ["title", "link", "lastBuildDate", "pubDate", "language",
+                "managingEditor", "description", "category"]:
+        val = feed_data.get(key)
+        if val not in [None, "", []]:
+            feed_data_json[key] = val
 
+    if plain_items:
+        items_clean = [clean_dict(item) for item in plain_items if
+                       clean_dict(item)]
+        if items_clean:
+            feed_data_json["items"] = items_clean
+
+    return [json_module.dumps(feed_data_json, indent=2, ensure_ascii=False)]
+
+
+# Helper function to format plain text output
+def format_plain_text(feed_data: dict, plain_items: List[dict]) -> List[str]:
     lines = []
     lines.append(f"Feed:{feed_data['title']}")
     lines.append(f"Link:{feed_data['link']}")
@@ -162,6 +134,59 @@ def rss_parser(
             lines.append(strip_html_tags(item["description"]))
 
     return lines
+
+
+def rss_parser(
+        xml: str,
+        limit: Optional[int] = None,
+        json: bool = False, category: str = None
+) -> List[str]:
+    """
+    RSS parser.
+
+    Args:
+        xml: XML document as a string.
+        limit: Number of the news to return. if None, returns all news.
+        json: If True, fomat output as JSON.
+        category: Optional category for filtering
+
+    Returns:
+        List of strings.
+        Which then can be printed to stdout or written to file
+        as a separate lines.
+
+    Examples:
+        >>> xml_ = '<rss><channel><title>Some RSS Channel</title>' +
+        '<link>https://some.rss.com</link>' +
+        '<description>Some RSS Channel</description></channel></rss>'
+        >>> rss_parser(xml_)
+        ["Feed: Some RSS Channel",
+        "Link: https://some.rss.com"]
+        >>> print("\\n".join(rss_parser(xml_)))
+        Feed: Some RSS Channel
+        Link: https://some.rss.com
+    """
+    # Your code goes here
+    channel = parse_xml(xml)
+    feed_data = extract_feed_data(channel)
+    items = channel.findall("item")
+
+    # Apply the category filter if provided
+    if category:
+        items = filter_by_category(items, category)
+
+    # Apply the limit if provided
+    items = apply_limit(items, limit)
+
+    # Extract item data
+    plain_items = [extract_item_data(item) for item in items]
+    feed_data["items"] = plain_items
+
+    # Return JSON or plain text
+    if json:
+        return convert_to_json(feed_data, plain_items)
+    else:
+        return format_plain_text(feed_data, plain_items)
 
 
 def main(argv: Optional[Sequence] = None):
